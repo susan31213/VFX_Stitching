@@ -72,8 +72,11 @@ for img_idx in range(0, 17):
     ax[1].imshow(for_showing_corner2, interpolation='nearest', cmap=plt.cm.gray)
 
     # matching
-    match = []
-    for f in f1:
+    match = {}
+    for idx in range(len(f2)):
+        match[idx] = [-1, 1000000]
+
+    for i, f in enumerate(f1):
         min_dis = 1000000
         min_index = -1
         threshold = 2
@@ -82,43 +85,18 @@ for img_idx in range(0, 17):
             if min_dis > dis and dis < threshold:
                 min_dis = dis
                 min_index = k
-        match.append(min_index)
+        # check min_index in f2 is not matched
+        if min_index != -1:
+            if match[min_index][0] == -1:
+                match[min_index] = [i, min_dis]
+            elif match[min_index][1] > min_dis:
+                match[min_index] = [i, min_dis]
 
     # plot matching point
-    for k in range(len(f1)):
-        if(match[k] != -1):
-            ax[0].plot(c1[k][1], c1[k][0], '.r', markersize=3)
-            ax[0].text(c1[k][1] + 5, c1[k][0] - 5, str(k))
-            ax[1].plot(c2[match[k]][1], c2[match[k]][0], '.r', markersize=3)
-            ax[1].text(c2[match[k]][1] + 5, c2[match[k]][0] - 5, str(k))
+    for m in match.keys():
+        if(match[m][0] != -1):
+            ax[0].plot(c1[match[m][0]][1], c1[match[m][0]][0], '.r', markersize=3)
+            ax[0].text(c1[match[m][0]][1] + 5, c1[match[m][0]][0] - 5, str(m))
+            ax[1].plot(c2[m][1], c2[m][0], '.r', markersize=3)
+            ax[1].text(c2[m][1] + 5, c2[m][0] - 5, str(m))
     plt.show()
-
-# for i in range(len(imgs)):
-#     gray = rgb2gray(imgs[i])
-#     corners, features = feature_detection(gray, 0.04, 0.12)
-#     corner_vec.append(corners)
-#     feature_vec.append(features)
-#     ax[i].imshow(corner_vis[i], interpolation='nearest', cmap=plt.cm.gray)    
-
-# feature_vec = np.asarray(feature_vec)
-# for i in range(len(imgs)-1):
-#     match = []
-#     for f1 in feature_vec[i]:
-#         min_dis = 1000000
-#         min_index = -1
-#         threshold = 2
-#         # print(f1)
-#         for k in range(len(feature_vec[i+1])):
-#             dis = np.sum(np.absolute(np.asarray(f1)-feature_vec[i+1][k]))
-#             if min_dis > dis and dis < threshold:
-#                 min_dis = dis
-#                 min_index = k
-#         match.append(min_index)
-
-# for k in range(len(feature_vec[0])):
-#     if(match[k] != -1):
-#         ax[0].plot(corner_vec[0][k][1], corner_vec[0][k][0], '.r', markersize=3)
-#         ax[0].text(corner_vec[0][k][1] + 10, corner_vec[0][k][0] + 10, str(k))
-#         ax[1].plot(corner_vec[1][match[k]][1], corner_vec[1][match[k]][0], '.r', markersize=3)
-#         ax[1].text(corner_vec[1][match[k]][1] + 10, corner_vec[1][match[k]][0] + 10, str(k))
-# plt.show()
