@@ -47,7 +47,51 @@ def feature_detection(gray, k, r_thre):
     return corners, f
 
 
-def feature_matching(gray1, gray2):
+def feature_matching(corners1, features1, corners2, features2, threshold, plot=False):
+    if plot:
+        fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,10))
+        for_showing_corner1 = np.copy(img1)
+        for_showing_corner2 = np.copy(img2)
+        ax[0].imshow(for_showing_corner1, interpolation='nearest', cmap=plt.cm.gray) 
+        ax[1].imshow(for_showing_corner2, interpolation='nearest', cmap=plt.cm.gray)
+
+    # matching
+    match = {}
+    for idx in range(len(features2)):
+        match[idx] = [-1, 1000000]
+
+    for i, f in enumerate(features1):
+        min_dis = 1000000
+        min_index = -1
+        threshold = 2
+        for k in range(len(features2)):
+            dis = np.sum(np.absolute(np.asarray(f)-np.asarray(features2[k])))
+            if min_dis > dis and dis < threshold:
+                min_dis = dis
+                min_index = k
+        # check min_index in features2 is not matched
+        if min_index != -1:
+            if match[min_index][0] == -1:
+                match[min_index] = [i, min_dis]
+            elif match[min_index][1] > min_dis:
+                match[min_index] = [i, min_dis]
+
+    # plot matching point
+    matching_cnt = 0
+    print('img1\t->\timg2\tdistance')
+    for m in match.keys():
+        if(match[m][0] != -1):
+            matching_cnt += 1
+            print('{:d}\t->\t{:d}\t{:f}'.format(match[m][0], m, match[m][1]))
+            if plot:
+                ax[0].plot(corners1[match[m][0]][1], corners1[match[m][0]][0], '.r', markersize=3)
+                ax[0].text(corners1[match[m][0]][1] + 5, corners1[match[m][0]][0] - 5, str(m))
+                ax[1].plot(corners2[m][1], corners2[m][0], '.r', markersize=3)
+                ax[1].text(corners2[m][1] + 5, corners2[m][0] - 5, str(m))
+    print('features1: {:d}, features2: {:d}'.format(len(features1), len(features2)))
+    print('total match: {:d}\n----------------------'.format(matching_cnt))
+    if plot:
+        plt.show()
     return
 
 imgs = [imread('parrington/prtn02.jpg'), imread('parrington/prtn01.jpg')]
@@ -59,44 +103,10 @@ feature_vec = []
 for img_idx in range(0, 17):
     img1 = imread("parrington/prtn{:02d}.jpg".format(img_idx))
     img2 = imread("parrington/prtn{:02d}.jpg".format(img_idx+1))
-    for_showing_corner1 = np.copy(img1)
-    for_showing_corner2 = np.copy(img2)
 
     gray1 = rgb2gray(img1)
     gray2 = rgb2gray(img2)
     c1, f1 = feature_detection(gray1, 0.04, 0.12)
     c2, f2 = feature_detection(gray2, 0.04, 0.12)
 
-    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,10))
-    ax[0].imshow(for_showing_corner1, interpolation='nearest', cmap=plt.cm.gray) 
-    ax[1].imshow(for_showing_corner2, interpolation='nearest', cmap=plt.cm.gray)
-
-    # matching
-    match = {}
-    for idx in range(len(f2)):
-        match[idx] = [-1, 1000000]
-
-    for i, f in enumerate(f1):
-        min_dis = 1000000
-        min_index = -1
-        threshold = 2
-        for k in range(len(f2)):
-            dis = np.sum(np.absolute(np.asarray(f)-np.asarray(f2[k])))
-            if min_dis > dis and dis < threshold:
-                min_dis = dis
-                min_index = k
-        # check min_index in f2 is not matched
-        if min_index != -1:
-            if match[min_index][0] == -1:
-                match[min_index] = [i, min_dis]
-            elif match[min_index][1] > min_dis:
-                match[min_index] = [i, min_dis]
-
-    # plot matching point
-    for m in match.keys():
-        if(match[m][0] != -1):
-            ax[0].plot(c1[match[m][0]][1], c1[match[m][0]][0], '.r', markersize=3)
-            ax[0].text(c1[match[m][0]][1] + 5, c1[match[m][0]][0] - 5, str(m))
-            ax[1].plot(c2[m][1], c2[m][0], '.r', markersize=3)
-            ax[1].text(c2[m][1] + 5, c2[m][0] - 5, str(m))
-    plt.show()
+    feature_matching(c1, f1, c2, f2, 2, True)
