@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage.feature import peak_local_max
+import math
 
 def feature_detection(gray, k, r_thre):
     # gradient
@@ -90,20 +91,55 @@ def feature_matching(corners1, features1, corners2, features2, threshold, plot=F
         plt.show()
     return
 
-imgs = [cv2.imread('parrington/prtn02.jpg'), cv2.imread('parrington/prtn01.jpg')]
-corner_vis = [np.copy(img) for img in imgs]
 
-corner_vec = []
-feature_vec = []
 
 # for img_idx in range(0, 17):
-for img_idx in range(0, 1):
-    img1 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx))
-    img2 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx+1))
+# for img_idx in range(0, 1):
+#     img1 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx))
+#     img2 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx+1))
 
-    gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY) / 255
-    gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY) / 255
-    c1, f1 = feature_detection(gray1, 0.04, 0.12)
-    c2, f2 = feature_detection(gray2, 0.04, 0.12)
+#     gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY) / 255
+#     gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY) / 255
+#     c1, f1 = feature_detection(gray1, 0.04, 0.12)
+#     c2, f2 = feature_detection(gray2, 0.04, 0.12)
 
-    feature_matching(c1, f1, c2, f2, 2, True)
+#     feature_matching(c1, f1, c2, f2, 2, True)
+
+# Cylindrical warping
+focal_length = []
+file = open('parrington/pano.txt', 'r')
+lines = file.readlines()
+for i, l in enumerate(lines):
+    if i != 0 and i % 13 == 11:
+        focal_length.append(float(l))
+for img_idx in range(18):
+    img = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx))
+    proj = np.zeros((img.shape), dtype=np.uint8)
+    f = focal_length[img_idx]
+    print(np.shape(img))
+    for i in range(np.shape(img)[0]):
+        for j in range(np.shape(img)[1]):
+            x = int(f*((i-np.shape(img)[0]/2)/math.sqrt((j-np.shape(img)[1]/2)**2+f**2)))
+            x = np.shape(img)[0]-1 if x >= np.shape(img)[0] else x
+            y = int(f*math.atan2((j-np.shape(img)[1]/2), f))
+            y = np.shape(img)[1]-1 if y >= np.shape(img)[1] else y
+
+            if x > np.shape(img)[0]/2 and y > np.shape(img)[1]/2:
+                x -= int(np.shape(img)[0]/2)
+                y -= int(np.shape(img)[1]/2)
+            elif x < np.shape(img)[0]/2 and y < np.shape(img)[1]/2:
+                x += int(np.shape(img)[0]/2)
+                y += int(np.shape(img)[1]/2)
+            elif x < np.shape(img)[0]/2 and y > np.shape(img)[1]/2:
+                x += int(np.shape(img)[0]/2)
+                y -= int(np.shape(img)[1]/2)
+            elif x > np.shape(img)[0]/2 and y < np.shape(img)[1]/2:
+                x -= int(np.shape(img)[0]/2)
+                y += int(np.shape(img)[1]/2)
+            
+            proj[x][y] = img[i][j]
+
+    cv2.imshow('',proj)
+    cv2.imshow('1', img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
