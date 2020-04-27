@@ -1,23 +1,19 @@
 import cv2
 import numpy as np
-import scipy
 import matplotlib.pyplot as plt
-from skimage.io import imread
-from skimage.color import rgb2gray
 from skimage.feature import peak_local_max
-from skimage.feature import corner_harris, corner_peaks
 
 def feature_detection(gray, k, r_thre):
     # gradient
     x_kernal = np.array([[-1, 0, 1],[-2, 0, 2],[-1, 0, 1]])
     y_kernal = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
-    Ix = scipy.signal.convolve2d(gray, x_kernal, mode='same')
-    Iy = scipy.signal.convolve2d(gray, y_kernal, mode='same')
-
+    Ix = cv2.filter2D(gray, -1, x_kernal)
+    Iy = cv2.filter2D(gray, -1, y_kernal)
+    print(Ix)
     # Ixx Iyy Ixy
-    Ixx = scipy.ndimage.gaussian_filter(Ix**2, sigma=1)
-    Ixy = scipy.ndimage.gaussian_filter(Iy*Ix, sigma=1)
-    Iyy = scipy.ndimage.gaussian_filter(Iy**2, sigma=1)
+    Ixx = cv2.GaussianBlur(Ix**2, ksize=(3,3), sigmaX=1)
+    Ixy = cv2.GaussianBlur(Iy*Ix, ksize=(3,3), sigmaX=1)
+    Iyy = cv2.GaussianBlur(Iy**2, ksize=(3,3), sigmaX=1)
 
     # Harris response calculation
     detA = Ixx * Iyy - Ixy ** 2     # determinant
@@ -94,18 +90,19 @@ def feature_matching(corners1, features1, corners2, features2, threshold, plot=F
         plt.show()
     return
 
-imgs = [imread('parrington/prtn02.jpg'), imread('parrington/prtn01.jpg')]
+imgs = [cv2.imread('parrington/prtn02.jpg'), cv2.imread('parrington/prtn01.jpg')]
 corner_vis = [np.copy(img) for img in imgs]
 
 corner_vec = []
 feature_vec = []
 
-for img_idx in range(0, 17):
-    img1 = imread("parrington/prtn{:02d}.jpg".format(img_idx))
-    img2 = imread("parrington/prtn{:02d}.jpg".format(img_idx+1))
+# for img_idx in range(0, 17):
+for img_idx in range(0, 1):
+    img1 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx))
+    img2 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx+1))
 
-    gray1 = rgb2gray(img1)
-    gray2 = rgb2gray(img2)
+    gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY) / 255
+    gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY) / 255
     c1, f1 = feature_detection(gray1, 0.04, 0.12)
     c2, f2 = feature_detection(gray2, 0.04, 0.12)
 
