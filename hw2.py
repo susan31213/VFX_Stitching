@@ -27,7 +27,7 @@ def feature_detection(gray, k, r_thre, right):
     r_arr = np.zeros(np.shape(gray))
     for r_idx, r in enumerate(harris_responses):
         for c_idx, r in enumerate(r):
-            if r > r_thre and ((right and c_idx <= gray.shape[1]*0.4) or ((not right) and c_idx >= gray.shape[1]*0.6)):
+            if r > r_thre and ((right and c_idx <= gray.shape[1]*0.55) or ((not right) and c_idx >= gray.shape[1]*0.45)):
                 # this is a corner
                 r_arr[r_idx, c_idx] = r
     # Local maximum
@@ -45,8 +45,8 @@ def feature_detection(gray, k, r_thre, right):
     return corners, f
 
 
-def feature_matching(corners1, features1, corners2, features2, threshold, plot=False):
-    if plot:
+def feature_matching(corners1, features1, corners2, features2, threshold, debug=False):
+    if debug:
         fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,10))
         i1 = np.copy(img1)
         i2 = np.copy(img2)
@@ -78,20 +78,19 @@ def feature_matching(corners1, features1, corners2, features2, threshold, plot=F
                 match[min_index] = [i, min_dis]
 
     # plot matching point
-    matching_cnt = 0
-    print('img1\t->\timg2\tdistance')
-    for m in match.keys():
-        if(match[m][0] != -1):
-            matching_cnt += 1
-            print('{:d}\t->\t{:d}\t{:f}'.format(match[m][0], m, match[m][1]))
-            if plot:
+    if debug:
+        matching_cnt = 0
+        print('img1\t->\timg2\tdistance')
+        for m in match.keys():
+            if(match[m][0] != -1):
+                matching_cnt += 1
+                print('{:d}\t->\t{:d}\t{:f}'.format(match[m][0], m, match[m][1]))
                 ax[0].plot(corners1[match[m][0]][1], corners1[match[m][0]][0], '.r', markersize=3)
                 ax[0].text(corners1[match[m][0]][1] + 5, corners1[match[m][0]][0] - 5, str(m))
                 ax[1].plot(corners2[m][1], corners2[m][0], '.r', markersize=3)
                 ax[1].text(corners2[m][1] + 5, corners2[m][0] - 5, str(m))
-    print('features1: {:d}, features2: {:d}'.format(len(features1), len(features2)))
-    print('total match: {:d}\n----------------------'.format(matching_cnt))
-    if plot:
+        print('features1: {:d}, features2: {:d}'.format(len(features1), len(features2)))
+        print('total match: {:d}\n----------------------'.format(matching_cnt))
         plt.show()
     return match
 
@@ -150,21 +149,20 @@ def find_translation(c1, c2, match_dict):
     best_inliner = 0
     err_thre = 1.5
     n = 1
-    K = math.log10(0.001)/math.log10(1-math.pow(0.4,n))
+    K = math.log10(0.001)/math.log10(1-math.pow(0.1,n))
     print('RANSAC ' + str(int(K)) + ' times')
-    for k in range(int(K)):
+    for k in match_dict.keys():
         # print(int(len(c1)*0.3))
-        subset = sample(match_dict.keys(), n)
+        # subset = sample(match_dict.keys(), n)
         m1 = 0
         m2 = 0
-        for s in subset:
-            m1 += c2[s][0] - c1[match_dict[s][0]][0]
-            m2 += c2[s][1] - c1[match_dict[s][0]][1]
+        m1 += c2[k][0] - c1[match_dict[k][0]][0]
+        m2 += c2[k][1] - c1[match_dict[k][0]][1]
         m1 /= float(n)
         m2 /= float(n)
         inliner = 0
         for s in match_dict.keys():
-            if s in subset:
+            if s == k:
                 continue
             # print(subset, s, abs(c2[s][0] - c1[match_dict[s][0]][0] - m1) + abs(c2[s][1] - c1[match_dict[s][0]][1] - m2))
             if ((c2[s][0] - c1[match_dict[s][0]][0] - m1)**2 + (c2[s][1] - c1[match_dict[s][0]][1] - m2)**2)**0.5 < err_thre:
@@ -178,6 +176,72 @@ def find_translation(c1, c2, match_dict):
     return best_m1, best_m2, best_inliner
 
 
+def stitching(imgs, match_dict, offsets, debug_plot=False, c1=None, c2=None):
+    i1 = imgs[0].copy()
+    i2 = imgs[1].copy()
+    x_offsetf, y_offsetf = offsets[0], offsets[1]
+    
+    x_offset = int(round(x_offsetf))
+    y_offset = int(round(y_offsetf))
+    concate = np.zeros((i2.shape[0]+abs(x_offset), i2.shape[1]+y_offset, 3), dtype=np.uint8)
+
+    # Apply offset
+    if x_offset > 0:
+        if debug_plot:
+            for m in match_dict.keys():
+                plt.plot(c1_proj[match_dict[m][0]][1]+y_offset, c1_proj[match_dict[m][0]][0]+x_offset, '.b', markersize=6)
+                plt.plot(c2_proj[m][1], c2_proj[m][0], '.r', markersize=3)
+        concate[x_offset:, :y_offset, :] = i2[:,:y_offset,:]
+        concate[:-x_offset, i2.shape[1]:, :] = i1[:,i2.shape[1]-y_offset:,:]
+        # blend
+        for x in range(0,concate.shape[0]):
+            for y in range(y_offset, i2.shape[1]):
+                if x-x_offset < 0:
+                    concate[x,y] = i1[x, y-y_offset]
+                elif x >= i1.shape[0]:
+                    concate[x,y] = i2[x-x_offset, y]
+                else:
+                    if i2[x-x_offset, y,0] == 0 and i2[x-x_offset, y,1] == 0 and i2[x-x_offset, y,2] == 0:
+                        concate[x,y] = i1[x, y-y_offset]
+                    elif i1[x, y-y_offset,0] == 0 and i1[x, y-y_offset,1] == 0 and i1[x, y-y_offset,2] == 0:
+                        concate[x,y] = i2[x-x_offset, y]
+                    else:
+                        w = ((y-y_offsetf)/(i2.shape[1]-y_offsetf))
+                        i2_weight = 1-w #if (w > 0.4 and w < 0.5) else (1 if w<=0.4 else 0)
+                        concate[x,y] = i2[x-x_offset, y] * (i2_weight) + i1[x, y-y_offset] * (1-i2_weight)
+
+    else:
+        if debug_plot:
+            for m in match_dict.keys():
+                plt.plot(c1_proj[match_dict[m][0]][1]+y_offset, c1_proj[match_dict[m][0]][0]-x_offset, '.b', markersize=4)
+                plt.plot(c2_proj[m][1], c2_proj[m][0], '.r', markersize=3)
+        concate[:i2.shape[0], :y_offset, :] = i2[:,:y_offset,:]
+        concate[-x_offset:, i2.shape[1]:, :] = i1[:,i1.shape[1]-y_offset:,:]
+        # blend
+        for x in range(0,concate.shape[0]):
+            for y in range(y_offset, i2.shape[1]):
+                if x+x_offset < 0:
+                    concate[x,y] = i2[x, y]
+                elif x >= i2.shape[0]:
+                    concate[x,y] = i1[x+x_offset, y-y_offset]
+                else:
+                    if i2[x, y,0] == 0 and i2[x, y,1] == 0 and i2[x, y,2] == 0:
+                        concate[x,y] = i1[x+x_offset, y-y_offset]
+                    elif i1[x+x_offset, y-y_offset,0] == 0 and i1[x+x_offset, y-y_offset,1] == 0 and i1[x+x_offset, y-y_offset,2] == 0:
+                        concate[x,y] = i2[x, y]
+                    else:
+                        w = (y-y_offsetf)/(i2.shape[1]-y_offsetf)
+                        i2_weight = 1-w 
+                        concate[x,y] = i2[x, y] * (i2_weight) + i1[x+x_offset, y-y_offset] * (1-i2_weight)
+    if debug_plot:    
+        for x in range(concate.shape[0]):
+            plt.plot(y_offset, x, '.g', markersize=3)
+            plt.plot(i2.shape[1], x, '.g', markersize=3)
+        plt.imshow(concate)
+        plt.show()
+    return concate
+
+
 # Get focal lengthes
 focal_length = []
 file = open('parrington/pano.txt', 'r')
@@ -187,100 +251,36 @@ for i, l in enumerate(lines):
         focal_length.append(float(l))
 
 start = 0
-end = 1
+end = 17
 # for img_idx in range(0, 17):
 for img_idx in range(start, end):
+    print("parrington/prtn{:02d}.jpg".format(img_idx))
     img1 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx))
     img2 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx+1))
 
     gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY) / 255
     gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY) / 255
-    c1, f1 = feature_detection(gray1, 0.06, 0.01, right=True)
-    c2, f2 = feature_detection(gray2, 0.06, 0.01, right=False)
+    c1, f1 = feature_detection(gray1, 0.05, 0.01, right=True)
+    c2, f2 = feature_detection(gray2, 0.05, 0.01, right=False)
 
-    match_dict = feature_matching(c1, f1, c2, f2, 1.5, False)  # key: f2 index, value: [f1 index, error]
+    match_dict = feature_matching(c1, f1, c2, f2, 1.8, debug=False)  # key: f2 index, value: [f1 index, error]
 
 
 
-# Cylindrical warping
-for img_idx in range(start, end):
-    img1 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx))
+    # Cylindrical warping
+    # img1 = cv2.imread("grail/grail{:02d}.jpg".format(img_idx))
     proj1, c1_proj = cylindrical_warping(img1, focal_length[img_idx], c1)
 
-    img2 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx+1))
-    proj2, c2_proj = cylindrical_warping(img2, focal_length[img_idx], c2)
+    # img2 = cv2.imread("grail/grail{:02d}.jpg".format(img_idx+1))
+    proj2, c2_proj = cylindrical_warping(img2, focal_length[img_idx+1], c2)
 
+    x_offsetf, y_offsetf, _ = find_translation(c1_proj, c2_proj, match_dict)
 
-i1 = np.copy(proj1)
-i2 = np.copy(proj2)
-i1[..., 0] = proj1[..., 2]
-i1[..., 1] = proj1[..., 1]
-i1[..., 2] = proj1[..., 0]
-i2[..., 0] = proj2[..., 2]
-i2[..., 1] = proj2[..., 1]
-i2[..., 2] = proj2[..., 0]
-for m in match_dict.keys():
-    c1_proj[match_dict[m][0]][1] += i2.shape[1]
-    # plt.plot(c1_proj[match_dict[m][0]][1], c1_proj[match_dict[m][0]][0], '.r', markersize=3)
-    # plt.plot(c2_proj[m][1], c2_proj[m][0], '.r', markersize=3)
-
-
-x_offsetf, y_offsetf, _ = find_translation(c1_proj, c2_proj, match_dict)
-print(x_offsetf,y_offsetf)
-x_offset = int(x_offsetf)
-y_offset = int(y_offsetf)
-concate = np.zeros((i2.shape[0]+abs(x_offset), i2.shape[1]*2+y_offset, 3), dtype=np.uint8)
-
-
-if x_offset > 0:
-    for m in match_dict.keys():
-        plt.plot(c1_proj[match_dict[m][0]][1]+y_offset, c1_proj[match_dict[m][0]][0]+x_offset, '.b', markersize=6)
-        plt.plot(c2_proj[m][1], c2_proj[m][0], '.r', markersize=3)
-    # plt.imshow(np.hstack([i2[x_offset:,:y_offset], i1[:-x_offset,:]]), interpolation='nearest', cmap=plt.cm.gray)
-    concate[x_offset:, 0:i2.shape[1]+y_offset, :] = i2[:,:y_offset,:]
-    concate[:-x_offset, i2.shape[1]:, :] = i1[:,-y_offset:,:]
-    # blend
-    for x in range(0,concate.shape[0]):
-        for y in range(i2.shape[1]+y_offset, i2.shape[1]):
-            if x-x_offset < 0:
-                concate[x,y] = i1[x, y-i2.shape[1]-y_offset]
-            elif x >= i1.shape[0]:
-                concate[x,y] = i2[x-x_offset, y]
-            else:
-                if i2[x-x_offset, y,0] == 0 and i2[x-x_offset, y,1] == 0 and i2[x-x_offset, y,2] == 0:
-                    concate[x,y] = i1[x, y-(i2.shape[1]+y_offset)]
-                elif i1[x, y+y_offset,0] == 0 and i1[x, y+y_offset,1] == 0 and i1[x, y+y_offset,2] == 0:
-                    concate[x,y] = i2[x-x_offset, y]
-                else:
-    
-                    w = 1-(y-(i2.shape[1]+float(y_offset)))/abs(y_offset)
-                    i2_weight = w #if (w > 0.4 and w < 0.5) else (1 if w<=0.4 else 0)
-                    concate[x,y] = i2[x-x_offset, y] * (i2_weight) + i1[x, y-(i2.shape[1]+y_offset)] * (1-i2_weight)
-
-else:
-    for m in match_dict.keys():
-        plt.plot(c1_proj[match_dict[m][0]][1]+y_offset, c1_proj[match_dict[m][0]][0]-x_offset, '.b', markersize=4)
-        plt.plot(c2_proj[m][1], c2_proj[m][0], '.r', markersize=3)
-    concate[:i2.shape[0], 0:i2.shape[1]+y_offset, :] = i2[:,:y_offset,:]
-    concate[-x_offset:, i2.shape[1]:, :] = i1[:,-y_offset:,:]
-    # blend
-    for x in range(0,concate.shape[0]):
-        for y in range(i2.shape[1]+y_offset, i2.shape[1]):
-            # print(x,y)
-            if x+x_offset < 0:
-                concate[x,y] = i2[x, y]
-            elif x >= i1.shape[0]:
-                concate[x,y] = i1[x+x_offset, y]
-            else:
-                if i2[x, y,0] == 0 and i2[x, y,1] == 0 and i2[x, y,2] == 0:
-                    concate[x,y] = i1[x+x_offset, y-(i2.shape[1]+y_offset)]
-                elif i1[x+x_offset, y-(i2.shape[1]+y_offset),0] == 0 and i1[x+x_offset, y-(i2.shape[1]+y_offset),1] == 0 and i1[x+x_offset, y-(i2.shape[1]+y_offset),2] == 0:
-                    concate[x,y] = i2[x, y]
-                else:
-                    w = (y-(i2.shape[1]+y_offsetf))/abs(y_offsetf)
-                    i2_weight = w 
-                    concate[x,y] = i2[x, y] * (i2_weight) + i1[x+x_offset, y-(i2.shape[1]+y_offset)] * (1-i2_weight)
-
-
-plt.imshow(concate)
-plt.show()
+    # stitching
+    result = stitching([proj1, proj2], match_dict, [x_offsetf-6, y_offsetf], debug_plot=False, c1=c1_proj, c2=c2_proj)
+    forplt = np.zeros(result.shape, dtype=np.uint8)
+    forplt[..., 0] = result[..., 2]
+    forplt[..., 1] = result[..., 1]
+    forplt[..., 2] = result[..., 0]
+    plt.imshow(forplt)
+    plt.show()
