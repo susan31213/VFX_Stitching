@@ -5,6 +5,7 @@ from skimage.feature import peak_local_max
 from random import seed
 from random import sample
 import math
+from cv2 import sort
 
 def feature_detection(gray, k, r_thre, right):
     # gradient
@@ -176,7 +177,7 @@ def find_translation(c1, c2, match_dict):
     return best_m1, best_m2, best_inliner
 
 
-def stitching(imgs, match_dict, offsets, debug_plot=False, c1=None, c2=None):
+def stitching(imgs, match_dict, offsets, blender, debug_plot=False, c1=None, c2=None):
     i1 = imgs[0].copy()
     i2 = imgs[1].copy()
     x_offsetf, y_offsetf = offsets[0], offsets[1]
@@ -193,7 +194,8 @@ def stitching(imgs, match_dict, offsets, debug_plot=False, c1=None, c2=None):
                 plt.plot(c2_proj[m][1], c2_proj[m][0]-x_offset, '.r', markersize=3)
         concate[:x_offset, :y_offset, :] = i2[:,:y_offset,:]
         concate[-x_offset:, i2.shape[1]:, :] = i1[:,i2.shape[1]-y_offset:,:]
-        # blend
+        # Fill in pixels
+        blend_area = {}
         for x in range(0,concate.shape[0]):
             for y in range(y_offset, i2.shape[1]):
                 if x+x_offset < 0:
@@ -206,9 +208,49 @@ def stitching(imgs, match_dict, offsets, debug_plot=False, c1=None, c2=None):
                     elif i1[x, y-y_offset,0] == 0 and i1[x, y-y_offset,1] == 0 and i1[x, y-y_offset,2] == 0:
                         concate[x,y] = i2[x+x_offset, y]
                     else:
-                        w = ((y-y_offsetf)/(i2.shape[1]-y_offsetf))
-                        i2_weight = 1-w #if (w > 0.4 and w < 0.5) else (1 if w<=0.4 else 0)
-                        concate[x,y] = i2[x+x_offset, y] * (i2_weight) + i1[x, y-y_offset] * (1-i2_weight)
+                        if blender == 'alpha':
+                            # alpha blend
+                            w = ((y-y_offsetf)/(i2.shape[1]-y_offsetf))
+                            i2_weight = 1-w
+                            concate[x,y] = i2[x+x_offset, y] * (i2_weight) + i1[x, y-y_offset] * (1-i2_weight)
+                        elif blender == 'min error alpha':
+                            # record blending area
+                            if y not in blend_area:
+                                blend_area[y] = [x, x]
+                            else:
+                                if blend_area[y][0] > x:
+                                    blend_area[y][0] = x;
+                                elif blend_area[y][1] < x:
+                                    blend_area[y][1] = x
+        if blender == 'min error alpha':                
+            order = sorted(blend_area.keys())
+            bandwidth = 3.0
+            w = int(bandwidth/2)
+            min_err = 100000000000
+            min_colidx = 0
+            for col in range(order[0]+w, order[-1]-w):
+                err = 0
+                for x in range(col-w, col+w):
+                    for y in range(blend_area[col][0], blend_area[col][1]):
+                        diff = i2[x+x_offset, y] - i1[x, y-y_offset]
+                        err += (diff[0]**2+diff[1]**2+diff[2]**2)**0.5
+                if err < min_err:
+                    min_err = err
+                    min_colidx = col
+            print(min_colidx, min_err)
+            for x in range(x_offset, i2.shape[0]):
+                for y in range(order[0], min_colidx-w):
+                    if concate[x,y][0] == 255 and concate[x,y][1] == 0 and concate[x,y][2] == 0:
+                        concate[x,y] = i2[x+x_offset, y]
+            for x in range(x_offset, i2.shape[0]):
+                for y in range(min_colidx-w, min_colidx+w+1):
+                    if concate[x,y][0] == 255 and concate[x,y][1] == 0 and concate[x,y][2] == 0:
+                        weight = (y-min_colidx+w)/bandwidth
+                        concate[x,y] = i2[x+x_offset, y] * weight + i1[x, y-y_offset] * (1-weight)
+            for x in range(x_offset, i2.shape[0]):
+                for y in range(min_colidx+w+1, order[-1]+1):
+                    if concate[x,y][0] == 255 and concate[x,y][1] == 0 and concate[x,y][2] == 0:
+                        concate[x,y] = i1[x, y-y_offset]
 
     else:
         if debug_plot:
@@ -217,7 +259,8 @@ def stitching(imgs, match_dict, offsets, debug_plot=False, c1=None, c2=None):
                 plt.plot(c2_proj[m][1], c2_proj[m][0], '.r', markersize=3)
         concate[:i2.shape[0], :y_offset, :] = i2[:,:y_offset,:]
         concate[x_offset:, i2.shape[1]:, :] = i1[:,i1.shape[1]-y_offset:,:]
-        # blend
+        # Fill in pixels
+        blend_area = {}     # {y_axis value: [min on x_axis, max on x_axis]}
         for x in range(0,concate.shape[0]):
             for y in range(y_offset, i2.shape[1]):
                 if x-x_offset < 0:
@@ -230,9 +273,54 @@ def stitching(imgs, match_dict, offsets, debug_plot=False, c1=None, c2=None):
                     elif i1[x-x_offset, y-y_offset,0] == 0 and i1[x-x_offset, y-y_offset,1] == 0 and i1[x-x_offset, y-y_offset,2] == 0:
                         concate[x,y] = i2[x, y]
                     else:
-                        w = (y-y_offsetf)/(i2.shape[1]-y_offsetf)
-                        i2_weight = 1-w 
-                        concate[x,y] = i2[x, y] * (i2_weight) + i1[x-x_offset, y-y_offset] * (1-i2_weight)
+                        if blender == 'alpha':
+                            w = (y-y_offsetf)/(i2.shape[1]-y_offsetf)
+                            i2_weight = 1-w 
+                            concate[x,y] = i2[x, y] * (i2_weight) + i1[x-x_offset, y-y_offset] * (1-i2_weight)
+                        
+                        elif blender == 'min error alpha':
+                            # record blending area
+                            if y not in blend_area:
+                                blend_area[y] = [x, x]
+                            else:
+                                if blend_area[y][0] > x:
+                                    blend_area[y][0] = x;
+                                elif blend_area[y][1] < x:
+                                    blend_area[y][1] = x
+                            concate[x,y] = [255,0,0]
+                        
+                        
+        if blender == 'min error alpha':
+            order = sorted(blend_area.keys())
+            bandwidth = 3.0
+            w = int(bandwidth/2)
+            min_err = 100000000000
+            min_colidx = 0
+            for col in range(order[0]+w, order[-1]-w):
+                err = 0
+                for x in range(col-w, col+w):
+                    for y in range(blend_area[col][0], blend_area[col][1]):
+                        diff = i2[y,x] - i1[y-y_offset, x-x_offset]
+                        err += (diff[0]**2+diff[1]**2+diff[2]**2)**0.5
+                if err < min_err:
+                    min_err = err
+                    min_colidx = col
+            print(min_colidx, min_err)
+            for x in range(x_offset, i2.shape[0]):
+                for y in range(order[0], min_colidx-w):
+                    # print(order[0], min_colidx-w, y)
+                    if concate[x,y][0] == 255 and concate[x,y][1] == 0 and concate[x,y][2] == 0:
+                        concate[x,y] = i2[x,y]
+            for x in range(x_offset, i2.shape[0]):
+                for y in range(min_colidx-w, min_colidx+w+1):
+                    if concate[x,y][0] == 255 and concate[x,y][1] == 0 and concate[x,y][2] == 0:
+                        weight = (y-min_colidx+w)/bandwidth
+                        concate[x,y] = i2[x,y] * weight + i1[x-x_offset, y-y_offset] * (1-weight)
+            for x in range(x_offset, i2.shape[0]):
+                for y in range(min_colidx+w+1, order[-1]+1):
+                    if concate[x,y][0] == 255 and concate[x,y][1] == 0 and concate[x,y][2] == 0:
+                        concate[x,y] = i1[x-x_offset, y-y_offset]
+
     if debug_plot:    
         for x in range(concate.shape[0]):
             plt.plot(y_offset, x, '.g', markersize=3)
@@ -251,35 +339,50 @@ for i, l in enumerate(lines):
         focal_length.append(float(l))
 
 start = 0
-end = 17
+end = 2
+pairs = []
+offsets = []
 for img_idx in range(start, end):
     print("parrington/prtn{:02d}.jpg".format(img_idx))
     img1 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx))
     img2 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx+1))
 
+    # feature dectection
     gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY) / 255
     gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY) / 255
     c1, f1 = feature_detection(gray1, 0.05, 0.01, right=True)
     c2, f2 = feature_detection(gray2, 0.05, 0.01, right=False)
 
+    # feature matching
     match_dict = feature_matching(c1, f1, c2, f2, 1.8, debug=False)  # key: f2 index, value: [f1 index, error]
 
-
-
     # Cylindrical warping
-    # img1 = cv2.imread("grail/grail{:02d}.jpg".format(img_idx))
     proj1, c1_proj = cylindrical_warping(img1, focal_length[img_idx], c1)
-
-    # img2 = cv2.imread("grail/grail{:02d}.jpg".format(img_idx+1))
     proj2, c2_proj = cylindrical_warping(img2, focal_length[img_idx+1], c2)
 
+    # fit translation model
+
     x_offsetf, y_offsetf, _ = find_translation(c1_proj, c2_proj, match_dict)
+    offsets.append([int(x_offsetf), int(y_offsetf)])
 
     # stitching
-    result = stitching([proj1, proj2], match_dict, [x_offsetf, y_offsetf], debug_plot=False, c1=c1_proj, c2=c2_proj)
-    forplt = np.zeros(result.shape, dtype=np.uint8)
-    forplt[..., 0] = result[..., 2]
-    forplt[..., 1] = result[..., 1]
-    forplt[..., 2] = result[..., 0]
-    plt.imshow(forplt)
-    plt.show()
+    pairs.append(stitching([proj1, proj2], match_dict, [x_offsetf, y_offsetf], 'min error alpha', debug_plot=False, c1=c1_proj, c2=c2_proj))
+
+
+# result = pairs[0].copy()
+# print(result.shape)
+# for i in range(1,len(pairs)):
+#     print(pairs[i].shape)
+#     if offsets[i][0] > 0:
+#         left = np.vstack([pairs[i], np.zeros((offsets[i][0], pairs[i].shape[1], 3), dtype=np.uint8)])
+#         right = np.vstack([np.zeros((offsets[i][0], result.shape[1], 3)), result])
+#         print(left.shape, right.shape)
+#         result = np.hstack([left[:, :offsets[i][1]], right[:, offsets[i][1]:]])
+
+
+# forplt = np.zeros(result.shape, dtype=np.uint8)
+# forplt[..., 0] = result[..., 2]
+# forplt[..., 1] = result[..., 1]
+# forplt[..., 2] = result[..., 0]
+# plt.imshow(forplt)
+# plt.show()
