@@ -350,8 +350,7 @@ if __name__ == '__main__':
                     help="blend method when stitching, default is alpha \
                           [alpha, min-error-alpha]")
     ap.add_argument('-w', '--bandwidth', required=False, type=int,
-                    help="bandwidth of min error alpha blend method, default is 3 \
-                          [alpha, min error alpha]")
+                    help="bandwidth of min error alpha blend method, default is 3")
     ap.add_argument('-D', '--debug', required=False, action='store_true',
                     help="option to show debug messages")
     ap.add_argument('-C', '--clip', required=False, action='store_true',
