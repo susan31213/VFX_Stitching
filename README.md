@@ -49,10 +49,10 @@ alpha blending在場景中有移動物體時就會產生鬼影，但在**室內*
 
 而如果使用min error alpha blending可以消除鬼影(高頻)，但在低頻區域(例如一大片草地)就會出現有點明顯的邊界。由於時間關係我們沒有**對不同頻率的區域做不同blending**，如果有做到，我們覺得能得到更好的結果。
 
-最後可以選擇輸出完整的圖片或是對圖片做裁剪，把黑邊裁掉。
+最後可以選擇輸出完整為剪裁的圖片或是對圖片做裁剪，關於剪裁方法我們實作了兩種:Direct clip和Rotate clip。Direct clip直接對漂移的影像作長方形裁切，這樣會剪掉很多上下有影像的部分，所以我們想了**Rotate clip**方法，把stitch後的影像按照偏移的量轉回比較正的長方形，並對長方形做裁切，這樣可以保留比較多上下部分的影像(原本400px變成500px)。
 
 ## Result
-點擊看大圖
+右鍵看大圖
 ### [parrington](https://www.csie.ntu.edu.tw/~cyy/courses/vfx/20spring/assignments/proj2/data/parrington.zip)
 images from VFX course website
 #### Simple alpha blending
@@ -61,6 +61,8 @@ images from VFX course website
 ![](https://i.imgur.com/DoFStqY.jpg)
 #### Clip
 ![](https://i.imgur.com/0tMZNhy.jpg)
+#### Rotate clip
+![](https://i.imgur.com/htgcnQb.jpg)
 
 
 ### [grail](https://www.csie.ntu.edu.tw/~cyy/courses/vfx/20spring/assignments/proj2/data/grail.zip)
@@ -71,3 +73,6 @@ images from VFX course website
 ![](https://i.imgur.com/RbnWIMN.jpg)
 #### Clip
 ![](https://i.imgur.com/iv1n0Ct.jpg)
+#### Rotate clip
+![](https://i.imgur.com/wT6sAIh.jpg)
+
