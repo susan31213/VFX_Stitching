@@ -6,6 +6,7 @@ from random import seed
 from random import sample
 import math
 from cv2 import sort
+import argparse
 
 def feature_detection(gray, k, r_thre, right):
     # gradient
@@ -143,7 +144,7 @@ def cylindrical_warping(img, f, corners):
     return proj, new_corners
 
 
-def find_translation(c1, c2, match_dict):
+def find_translation(c1, c2, match_dict, debug=False):
     # RANSAC: find how to translate proj1 to proj2 (move right)
     best_m1 = 0
     best_m2 = 0
@@ -151,7 +152,8 @@ def find_translation(c1, c2, match_dict):
     err_thre = 1.5
     n = 1
     K = math.log10(0.001)/math.log10(1-math.pow(0.1,n))
-    print('RANSAC ' + str(int(K)) + ' times')
+    if debug:
+        print('RANSAC ' + str(int(K)) + ' times')
     for k in match_dict.keys():
         # print(int(len(c1)*0.3))
         # subset = sample(match_dict.keys(), n)
@@ -173,7 +175,7 @@ def find_translation(c1, c2, match_dict):
             best_inliner = inliner
             best_m1 = m1
             best_m2 = m2
-    print(best_m1, best_m2, best_inliner)
+    print('x offset: {0}, y offset: {1}, highest # of inliners: {2}'.format(best_m1, best_m2, best_inliner))
     return best_m1, best_m2, best_inliner
 
 
@@ -184,7 +186,7 @@ def stitching(imgs, match_dict, offsets, blender, debug_plot=False, c1=None, c2=
     
     x_offset = int(round(x_offsetf))
     y_offset = int(round(y_offsetf))
-    concate = np.zeros((i2.shape[0]+abs(x_offset), i2.shape[1]+y_offset, 3), dtype=np.uint8)
+    concate = np.zeros((i1.shape[0]+abs(x_offset), i1.shape[1]+y_offset, 3), dtype=np.uint8)
 
     # Apply offset
     if x_offset < 0:
@@ -213,7 +215,7 @@ def stitching(imgs, match_dict, offsets, blender, debug_plot=False, c1=None, c2=
                             w = ((y-y_offsetf)/(i2.shape[1]-y_offsetf))
                             i2_weight = 1-w
                             concate[x,y] = i2[x+x_offset, y] * (i2_weight) + i1[x, y-y_offset] * (1-i2_weight)
-                        elif blender == 'min error alpha':
+                        elif blender == 'min-error-alpha':
                             # record blending area
                             if y not in blend_area:
                                 blend_area[y] = [x, x]
@@ -222,9 +224,9 @@ def stitching(imgs, match_dict, offsets, blender, debug_plot=False, c1=None, c2=
                                     blend_area[y][0] = x;
                                 elif blend_area[y][1] < x:
                                     blend_area[y][1] = x
-        if blender == 'min error alpha':                
+        if blender == 'min-error-alpha':                
             order = sorted(blend_area.keys())
-            bandwidth = 3.0
+            bandwidth = args['bandwidth']
             w = int(bandwidth/2)
             min_err = 100000000000
             min_colidx = 0
@@ -255,7 +257,7 @@ def stitching(imgs, match_dict, offsets, blender, debug_plot=False, c1=None, c2=
     else:
         if debug_plot:
             for m in match_dict.keys():
-                plt.plot(c1_proj[match_dict[m][0]][1]+y_offset, c1_proj[match_dict[m][0]][0]-x_offset, '.b', markersize=4)
+                plt.plot(c1_proj[match_dict[m][0]][1]+y_offset, c1_proj[match_dict[m][0]][0]+x_offset, '.b', markersize=4)
                 plt.plot(c2_proj[m][1], c2_proj[m][0], '.r', markersize=3)
         concate[:i2.shape[0], :y_offset, :] = i2[:,:y_offset,:]
         concate[x_offset:, i2.shape[1]:, :] = i1[:,i1.shape[1]-y_offset:,:]
@@ -278,7 +280,7 @@ def stitching(imgs, match_dict, offsets, blender, debug_plot=False, c1=None, c2=
                             i2_weight = 1-w 
                             concate[x,y] = i2[x, y] * (i2_weight) + i1[x-x_offset, y-y_offset] * (1-i2_weight)
                         
-                        elif blender == 'min error alpha':
+                        elif blender == 'min-error-alpha':
                             # record blending area
                             if y not in blend_area:
                                 blend_area[y] = [x, x]
@@ -290,9 +292,9 @@ def stitching(imgs, match_dict, offsets, blender, debug_plot=False, c1=None, c2=
                             concate[x,y] = [255,0,0]
                         
                         
-        if blender == 'min error alpha':
+        if blender == 'min-error-alpha':
             order = sorted(blend_area.keys())
-            bandwidth = 3.0
+            bandwidth = args['bandwidth']
             w = int(bandwidth/2)
             min_err = 100000000000
             min_colidx = 0
@@ -330,59 +332,127 @@ def stitching(imgs, match_dict, offsets, blender, debug_plot=False, c1=None, c2=
     return concate
 
 
-# Get focal lengthes
-focal_length = []
-file = open('parrington/pano.txt', 'r')
-lines = file.readlines()
-for i, l in enumerate(lines):
-    if i != 0 and i % 13 == 11:
-        focal_length.append(float(l))
 
-start = 0
-end = 2
-pairs = []
-offsets = []
-for img_idx in range(start, end):
-    print("parrington/prtn{:02d}.jpg".format(img_idx))
-    img1 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx))
-    img2 = cv2.imread("parrington/prtn{:02d}.jpg".format(img_idx+1))
+if __name__ == '__main__':
+    # construct the argument parse and parse the arguments
+    ap = argparse.ArgumentParser(
+        description="A Python implementation of image stitching")
+    ap.add_argument('-n', '--prefix-filename', required=True,
+                    help="image file path and image prefix name, need pano.txt\
+                          for example: parrington/prtn")
+    ap.add_argument('-f', '--format', required=True,
+                    help="input image format")
+    ap.add_argument('-i', '--number', required=True, type=int,
+                    help="the number of input images")
+    ap.add_argument('-o', '--output', required=True,
+                    help="ouput file name")
+    ap.add_argument('-b', '--blender', required=False,
+                    help="blend method when stitching, default is alpha \
+                          [alpha, min-error-alpha]")
+    ap.add_argument('-w', '--bandwidth', required=False, type=int,
+                    help="bandwidth of min error alpha blend method, default is 3 \
+                          [alpha, min error alpha]")
+    ap.add_argument('-D', '--debug', required=False, action='store_true',
+                    help="option to show debug messages")
+    ap.add_argument('-C', '--clip', required=False, action='store_true',
+                    help="option to clip into rect image without black boundary")                    
+    args = vars(ap.parse_args())
 
-    # feature dectection
-    gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY) / 255
-    gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY) / 255
-    c1, f1 = feature_detection(gray1, 0.05, 0.01, right=True)
-    c2, f2 = feature_detection(gray2, 0.05, 0.01, right=False)
-
-    # feature matching
-    match_dict = feature_matching(c1, f1, c2, f2, 1.8, debug=False)  # key: f2 index, value: [f1 index, error]
-
-    # Cylindrical warping
-    proj1, c1_proj = cylindrical_warping(img1, focal_length[img_idx], c1)
-    proj2, c2_proj = cylindrical_warping(img2, focal_length[img_idx+1], c2)
-
-    # fit translation model
-
-    x_offsetf, y_offsetf, _ = find_translation(c1_proj, c2_proj, match_dict)
-    offsets.append([int(x_offsetf), int(y_offsetf)])
-
-    # stitching
-    pairs.append(stitching([proj1, proj2], match_dict, [x_offsetf, y_offsetf], 'min error alpha', debug_plot=False, c1=c1_proj, c2=c2_proj))
+    args['blender'] = 'alpha' if args['blender'] == None else args['blender']
+    args['bandwidth'] = 3 if args['bandwidth'] == None else args['bandwidth']
 
 
-# result = pairs[0].copy()
-# print(result.shape)
-# for i in range(1,len(pairs)):
-#     print(pairs[i].shape)
-#     if offsets[i][0] > 0:
-#         left = np.vstack([pairs[i], np.zeros((offsets[i][0], pairs[i].shape[1], 3), dtype=np.uint8)])
-#         right = np.vstack([np.zeros((offsets[i][0], result.shape[1], 3)), result])
-#         print(left.shape, right.shape)
-#         result = np.hstack([left[:, :offsets[i][1]], right[:, offsets[i][1]:]])
+    splitIdx = args['prefix_filename'].rfind('/')
+    # Get focal lengthes
+    focal_length = []
+    file = open('{0}/pano.txt'.format(args['prefix_filename'][:splitIdx]), 'r')
+    lines = file.readlines()
+    for i, l in enumerate(lines):
+        if i != 0 and i % 13 == 11:
+            focal_length.append(float(l))
 
+    start = 0
+    end = args['number']
+    projs = []
+    offsets = []
+    stitch = []
+    first = True
+    print("{:s}{:02d}.{:s}".format(args['prefix_filename'], 0, args['format']))
+    for img_idx in range(start, end):
+        if len(projs) == 0:
+            img1 = cv2.imread("{:s}{:02d}.{:s}".format(args['prefix_filename'], img_idx, args['format']))
+        img2 = cv2.imread("{:s}{:02d}.{:s}".format(args['prefix_filename'], img_idx+1, args['format']))
+        print("{:s}{:02d}.{:s}".format(args['prefix_filename'], img_idx+1, args['format']))
 
-# forplt = np.zeros(result.shape, dtype=np.uint8)
-# forplt[..., 0] = result[..., 2]
-# forplt[..., 1] = result[..., 1]
-# forplt[..., 2] = result[..., 0]
-# plt.imshow(forplt)
-# plt.show()
+        # feature dectection
+        gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY) / 255
+        gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY) / 255
+        c1, f1 = feature_detection(gray1, 0.05, 0.01, right=True)
+        c2, f2 = feature_detection(gray2, 0.05, 0.01, right=False)
+
+        # feature matching
+        match_dict = feature_matching(c1, f1, c2, f2, 1.8, debug=args['debug'])  # key: f2 index, value: [f1 index, error]
+
+        # Cylindrical warping
+        proj1, c1_proj = cylindrical_warping(img1, focal_length[img_idx], c1)
+        proj2, c2_proj = cylindrical_warping(img2, focal_length[img_idx+1], c2)
+        if len(projs) == 0:
+            projs.append(proj1)
+        projs.append(proj2)
+
+        # fit translation model
+        x_offsetf, y_offsetf, _ = find_translation(c1_proj, c2_proj, match_dict)
+        offsets.append([int(x_offsetf), int(y_offsetf)])
+
+        img1 = img2
+
+        # stitching
+        stitch.append(stitching([proj1, proj2], match_dict, [x_offsetf, y_offsetf], args['blender'], debug_plot=args['debug'], c1=c1_proj, c2=c2_proj))
+
+    result = stitch[0]
+    for i in range(len(stitch)-1):
+        height_diff = result.shape[0] - stitch[i+1].shape[0]
+        if height_diff >= 0:
+            result = np.vstack([np.zeros((offsets[i+1][0], result.shape[1], 3), dtype=np.uint8), result])
+            stitch[i+1] = np.vstack([stitch[i+1], np.zeros((offsets[i+1][0]+height_diff, stitch[i+1].shape[1], 3), dtype=np.uint8)])
+        else:
+            result = np.vstack([np.zeros((offsets[i+1][0], result.shape[1], 3), dtype=np.uint8), result])
+            stitch[i+1] = np.vstack([stitch[i+1], np.zeros((offsets[i+1][0]+height_diff, stitch[i+1].shape[1], 3), dtype=np.uint8)])
+        
+        result = np.hstack([stitch[i+1][:, :-(projs[i+1].shape[1]-offsets[i+1][1]), :], result[:,offsets[i+1][1]:, :]])
+
+    # clip
+    if args['clip']:
+        l, r, u, d = -1, -1, -1, -1
+        cnt = 0
+        while(True):
+            if result[int(result.shape[0]/2), cnt, 0] != 0 or result[int(result.shape[0]/2), cnt, 1] != 0 or result[int(result.shape[0]/2), cnt, 2] != 0:
+                l = cnt
+                break
+            else:
+                cnt += 1
+        cnt = 0
+        while(True):
+            if result[int(result.shape[0]/2), -cnt, 0] != 0 or result[int(result.shape[0]/2), -cnt, 1] != 0 or result[int(result.shape[0]/2), -cnt, 2] != 0:
+                r = cnt
+                break
+            else:
+                cnt += 1
+        cnt = 0
+        while(True):
+            if result[-cnt, l, 0] != 0 or result[-cnt, l, 1] != 0 or result[-cnt, l, 2] != 0:
+                d = cnt
+                break
+            else:
+                cnt += 1
+        cnt = 0
+        while(True):
+            if result[cnt, -r, 0] != 0 or result[cnt, -r, 1] != 0 or result[cnt, -r, 2] != 0:
+                u = cnt
+                break
+            else:
+                cnt += 1
+        print(l, r, u, d)
+        cv2.imwrite('{0}'.format(args['output']), result[u:-d, l:-r, :])
+    else:
+        cv2.imwrite('{0}'.format(args['output']), result)
