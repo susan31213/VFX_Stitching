@@ -332,6 +332,36 @@ def stitching(imgs, match_dict, offsets, blender, debug_plot=False, c1=None, c2=
     return concate
 
 
+def find_black_boundary(img):
+    l, r, u, d = img.shape[1], 0, 0, img.shape[0]
+    for y in range(img.shape[0]):
+        for x in range(img.shape[1]):
+            if img[y,x,0] != 0 or img[y,x,1] != 0 or img[y,x,2] != 0:
+                if x < l:
+                    l = x
+                if x > r:
+                    r = x
+
+    for y in range(int(img.shape[0]/2)):
+        color_row = True
+        for x in range(l,r):
+            if img[y,x,0] == 0 and img[y,x,1] == 0 and img[y,x,2] == 0 and color_row:
+                color_row = False
+                break
+        if color_row:
+            u = y
+            break
+    for y in range(img.shape[0]-1, 0, -1):
+        color_row = True
+        for x in range(l,r):
+            if img[y,x,0] == 0 and img[y,x,1] == 0 and img[y,x,2] == 0 and color_row:
+                color_row = False
+                break
+        if color_row:
+            d = y
+            break
+
+    return l, r, u, d
 
 if __name__ == '__main__':
     # construct the argument parse and parse the arguments
@@ -347,19 +377,21 @@ if __name__ == '__main__':
     ap.add_argument('-o', '--output', required=True,
                     help="ouput file name")
     ap.add_argument('-b', '--blender', required=False,
-                    help="blend method when stitching, default is alpha \
+                    help="blend method when stitching, default is alpha, \
                           [alpha, min-error-alpha]")
     ap.add_argument('-w', '--bandwidth', required=False, type=int,
                     help="bandwidth of min error alpha blend method, default is 3")
     ap.add_argument('-D', '--debug', required=False, action='store_true',
                     help="option to show debug messages")
     ap.add_argument('-C', '--clip', required=False, action='store_true',
-                    help="option to clip into rect image without black boundary")                    
+                    help="option to clip into rect image without black boundary")
+    ap.add_argument('-c', '--clip-method', required=False,
+                    help="clip-method, default is rotate-clip, \
+                          [clip, rotate-clip]")               
     args = vars(ap.parse_args())
 
     args['blender'] = 'alpha' if args['blender'] == None else args['blender']
     args['bandwidth'] = 3 if args['bandwidth'] == None else args['bandwidth']
-
 
     splitIdx = args['prefix_filename'].rfind('/')
     # Get focal lengthes
@@ -421,37 +453,18 @@ if __name__ == '__main__':
         result = np.hstack([stitch[i+1][:, :-(projs[i+1].shape[1]-offsets[i+1][1]), :], result[:,offsets[i+1][1]:, :]])
 
     # clip
+    l,r,u,d = find_black_boundary(result)
+    
     if args['clip']:
-        l, r, u, d = -1, -1, -1, -1
-        cnt = 0
-        while(True):
-            if result[int(result.shape[0]/2), cnt, 0] != 0 or result[int(result.shape[0]/2), cnt, 1] != 0 or result[int(result.shape[0]/2), cnt, 2] != 0:
-                l = cnt
-                break
-            else:
-                cnt += 1
-        cnt = 0
-        while(True):
-            if result[int(result.shape[0]/2), -cnt, 0] != 0 or result[int(result.shape[0]/2), -cnt, 1] != 0 or result[int(result.shape[0]/2), -cnt, 2] != 0:
-                r = cnt
-                break
-            else:
-                cnt += 1
-        cnt = 0
-        while(True):
-            if result[-cnt, l, 0] != 0 or result[-cnt, l, 1] != 0 or result[-cnt, l, 2] != 0:
-                d = cnt
-                break
-            else:
-                cnt += 1
-        cnt = 0
-        while(True):
-            if result[cnt, -r, 0] != 0 or result[cnt, -r, 1] != 0 or result[cnt, -r, 2] != 0:
-                u = cnt
-                break
-            else:
-                cnt += 1
-        print(l, r, u, d)
-        cv2.imwrite('{0}'.format(args['output']), result[u:-d, l:-r, :])
-    else:
-        cv2.imwrite('{0}'.format(args['output']), result)
+        if args['clip_method'] == 'clip':
+            cv2.imwrite('{0}'.format(args['output']), result[u:d, l:r, :])
+        else:
+            M = cv2.getRotationMatrix2D((int(result.shape[1]/2), int(result.shape[0]/2)), math.degrees(math.atan(u/result.shape[1])), 1.0)
+            rotated = cv2.warpAffine(result, M, (result.shape[1], result.shape[0]))
+            # l,r,u,d = find_black_boundary(rotated)
+            # l *= math.cos(math.atan(u/result.shape[1]))
+            # u *= math.sin(math.atan(u/result.shape[1]))
+            l = int(l*2)
+            u = int(u/2)
+            print(l,r,u,d)
+            cv2.imwrite('{0}'.format(args['output']), rotated[u:-u, l:-l])
