@@ -1,5 +1,7 @@
 # VFX_Stitching
+Homework #2 in NTU Digital Visual Effects, Spring 2020.
 
+By 蘇俐文、李其蓉
 ## Dependencies
 + Python 3.6.4
 + opencv-python 4.1.1
