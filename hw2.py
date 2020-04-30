@@ -144,12 +144,12 @@ def cylindrical_warping(img, f, corners):
     return proj, new_corners
 
 
-def find_translation(c1, c2, match_dict, debug=False):
+def find_translation(c1, c2, match_dict, err_thre, debug=False):
     # RANSAC: find how to translate proj1 to proj2 (move right)
     best_m1 = 0
     best_m2 = 0
     best_inliner = 0
-    err_thre = 1.5
+    # err_thre = 1.5
     n = 1
     K = math.log10(0.001)/math.log10(1-math.pow(0.1,n))
     if debug:
@@ -167,7 +167,7 @@ def find_translation(c1, c2, match_dict, debug=False):
         for s in match_dict.keys():
             if s == k:
                 continue
-            # print(subset, s, abs(c2[s][0] - c1[match_dict[s][0]][0] - m1) + abs(c2[s][1] - c1[match_dict[s][0]][1] - m2))
+            # print((abs(c2[s][0] - c1[match_dict[s][0]][0] - m1) + abs(c2[s][1] - c1[match_dict[s][0]][1] - m2))**0.5)
             if ((c2[s][0] - c1[match_dict[s][0]][0] - m1)**2 + (c2[s][1] - c1[match_dict[s][0]][1] - m2)**2)**0.5 < err_thre:
                 inliner += 1
             
@@ -230,10 +230,12 @@ def stitching(imgs, match_dict, offsets, blender, debug_plot=False, c1=None, c2=
             w = int(bandwidth/2)
             min_err = 100000000000
             min_colidx = 0
-            for col in range(order[0]+w, order[-1]-w):
+            ww = order[-1]-w if order[-1]-w <= i2.shape[1] else i2.shape[1]
+            for col in range(order[0]+w, ww):
                 err = 0
                 for x in range(col-w, col+w):
                     for y in range(blend_area[col][0], blend_area[col][1]):
+                        # print(x+x_offset, y,x, y-y_offset )
                         diff = i2[x+x_offset, y] - i1[x, y-y_offset]
                         err += (diff[0]**2+diff[1]**2+diff[2]**2)**0.5
                 if err < min_err:
@@ -418,11 +420,11 @@ if __name__ == '__main__':
         # feature dectection
         gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY) / 255
         gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY) / 255
-        c1, f1 = feature_detection(gray1, 0.05, 0.01, right=True)
-        c2, f2 = feature_detection(gray2, 0.05, 0.01, right=False)
+        c1, f1 = feature_detection(gray1, 0.05, 0.005, right=True)
+        c2, f2 = feature_detection(gray2, 0.05, 0.005, right=False)
 
         # feature matching
-        match_dict = feature_matching(c1, f1, c2, f2, 1.8, debug=args['debug'])  # key: f2 index, value: [f1 index, error]
+        match_dict = feature_matching(c1, f1, c2, f2, 2.0, debug=args['debug'])  # key: f2 index, value: [f1 index, error]
 
         # Cylindrical warping
         proj1, c1_proj = cylindrical_warping(img1, focal_length[img_idx], c1)
@@ -432,7 +434,7 @@ if __name__ == '__main__':
         projs.append(proj2)
 
         # fit translation model
-        x_offsetf, y_offsetf, _ = find_translation(c1_proj, c2_proj, match_dict)
+        x_offsetf, y_offsetf, _ = find_translation(c1_proj, c2_proj, match_dict, 5.0)
         offsets.append([int(x_offsetf), int(y_offsetf)])
 
         img1 = img2
@@ -444,18 +446,25 @@ if __name__ == '__main__':
     for i in range(len(stitch)-1):
         height_diff = result.shape[0] - stitch[i+1].shape[0]
         if height_diff >= 0:
-            result = np.vstack([np.zeros((offsets[i+1][0], result.shape[1], 3), dtype=np.uint8), result])
-            stitch[i+1] = np.vstack([stitch[i+1], np.zeros((offsets[i+1][0]+height_diff, stitch[i+1].shape[1], 3), dtype=np.uint8)])
+            if offsets[i+1][0] > 0:
+                result = np.vstack([np.zeros((offsets[i+1][0], result.shape[1], 3), dtype=np.uint8), result])
+                stitch[i+1] = np.vstack([stitch[i+1], np.zeros((offsets[i+1][0]+height_diff, stitch[i+1].shape[1], 3), dtype=np.uint8)])
+            else:
+                result = np.vstack([result, np.zeros((-offsets[i+1][0], result.shape[1], 3), dtype=np.uint8)])
+                stitch[i+1] = np.vstack([np.zeros((-offsets[i+1][0]+height_diff, stitch[i+1].shape[1], 3), dtype=np.uint8), stitch[i+1]])
         else:
-            result = np.vstack([np.zeros((offsets[i+1][0], result.shape[1], 3), dtype=np.uint8), result])
-            stitch[i+1] = np.vstack([stitch[i+1], np.zeros((offsets[i+1][0]+height_diff, stitch[i+1].shape[1], 3), dtype=np.uint8)])
-        
+            if offsets[i+1][0] > 0:
+                result = np.vstack([np.zeros((offsets[i+1][0], result.shape[1], 3), dtype=np.uint8), result])
+                stitch[i+1] = np.vstack([stitch[i+1], np.zeros((offsets[i+1][0]+height_diff, stitch[i+1].shape[1], 3), dtype=np.uint8)])
+            else:
+                result = np.vstack([result, np.zeros((-offsets[i+1][0]-height_diff, result.shape[1], 3), dtype=np.uint8)])
+                stitch[i+1] = np.vstack([np.zeros((-offsets[i+1][0], stitch[i+1].shape[1], 3), dtype=np.uint8), stitch[i+1]])
         result = np.hstack([stitch[i+1][:, :-(projs[i+1].shape[1]-offsets[i+1][1]), :], result[:,offsets[i+1][1]:, :]])
 
     # clip
     l,r,u,d = find_black_boundary(result)
     
-    if args['clip']:
+    if args['clip'] == True:
         if args['clip_method'] == 'clip':
             cv2.imwrite('{0}'.format(args['output']), result[u:d, l:r, :])
         else:
@@ -466,5 +475,7 @@ if __name__ == '__main__':
             # u *= math.sin(math.atan(u/result.shape[1]))
             l = int(l*2)
             u = int(u/2)
-            print(l,r,u,d)
+            # print(l,r,u,d)
             cv2.imwrite('{0}'.format(args['output']), rotated[u:-u, l:-l])
+    else:
+        cv2.imwrite('{0}'.format(args['output']), result)
