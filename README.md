@@ -78,3 +78,13 @@ images from VFX course website
 #### Rotate clip
 ![](https://i.imgur.com/wT6sAIh.jpg)
 
+### parking lot (自己拍攝)
+#### Simple alpha blending
+![](https://i.imgur.com/lXgIMbx.jpg)
+#### Min-error alpha blending
+![](https://i.imgur.com/pLIuIjF.jpg)
+#### Clip
+![](https://i.imgur.com/Hb5bVI4.jpg)
+#### Rotate clip
+![](https://i.imgur.com/cLx2rbi.jpg)
+
